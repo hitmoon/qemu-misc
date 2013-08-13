@@ -1,7 +1,7 @@
 
 /* a demo device 
 * how to use qdev and QOM 
-* www.i-soft.com.cn 
+* <xiaoqiang.zhao@.i-soft.com.cn>
 */
 
 #ifndef HW_FLIP_H
@@ -12,7 +12,7 @@
 #include "sysemu/sysemu.h"
 #include "exec/memory.h"
 
-#define FLIP_REG_LEN   4    /* 32 bits register */
+#define FLIP_REG_LEN   4       /* 32 bits register */
 
 typedef struct FLIPState{
 	uint8_t conf;          /* configuration reg */
@@ -34,8 +34,8 @@ typedef struct FLIPState{
 }FLIPState;
 
 typedef struct PCIFLIPState {
-	PCIDevice dev;
-	FLIPState state;
+	PCIDevice dev;         /* inherits from PCIDevice */
+	FLIPState state;    
 }PCIFLIPState;
 
 extern const MemoryRegionOps flip_io_ops; /* io read / write functions */
