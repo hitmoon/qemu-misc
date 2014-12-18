@@ -7,8 +7,8 @@
 #ifndef HW_FLIP_H
 #define HW_FLIP_H
 
-#include "hw.h"
-#include "pci/pci.h"
+#include "hw/hw.h"
+#include "hw/pci/pci.h"
 #include "sysemu/sysemu.h"
 #include "exec/memory.h"
 

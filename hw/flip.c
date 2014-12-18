@@ -17,6 +17,7 @@
 #define FLIP_IN_EMPTY  (0x1 << 1)             /* input buffer empty mask */
 #define FLIP_OUT_EMPTY (0x1 << 2)             /* output buffer emtpy mask */
 
+static void flip_callback(void *opaque);
 
 /* update irq according state field */
 
@@ -36,7 +37,7 @@ static uint64_t flip_ioport_read(void *opaque, hwaddr addr, unsigned size)
 {
 	FLIPState *f = opaque;
 	uint64_t ret;
-	int i,j;
+	int i;
 
 	addr &= 0x7;
 	
@@ -57,13 +58,12 @@ static uint64_t flip_ioport_read(void *opaque, hwaddr addr, unsigned size)
 		/* if is empty, read from output buffer */
 		if (!(f->state & FLIP_OUT_EMPTY)) {
 			size = size > f->out_nr ? f->out_nr : size;
-			i = FLIP_REG_LEN - f->out_nr;
-			j = 0;
+			i = 0;
 			ret = 0;
 			do {
-				ret = f->out[i + j] << (j * 8) | ret; 
-				j++;
-			}while (j < size);
+				ret = f->out[i] << (i * 8) | ret; 
+				i++;
+			}while (i < size);
 			
 			/* update related fields */
 			qemu_mutex_lock(&f->lock);
@@ -89,10 +89,13 @@ static uint64_t flip_ioport_read(void *opaque, hwaddr addr, unsigned size)
 }
 
 /* ioport write function */
-void flip_ioport_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
+static void flip_ioport_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
 {
 	FLIPState *f = opaque;
 	int i;
+
+
+	//printf("addr = %d, size = %u, val = 0x%04lx\n", addr, size, val);
 
 	addr &= 0x7;
 	switch (addr) {
@@ -108,12 +111,15 @@ void flip_ioport_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
 			size = 4;
 
 		/* wait for convert action read away, 2000 us */
-		if (!(f->state & FLIP_IN_EMPTY))
+	 	if (!(f->state & FLIP_IN_EMPTY)) {
 			usleep(2000);
+		 }
+		
 
 		qemu_mutex_lock(&f->lock);
 
 		/* write 4 bytes to input buffer */
+		//printf("write 0x04%lx to in\n", val);
 		for (i = 0; i < size; i++) {
 			f->in[i] = (val >> (i * 8)) & 0xff ;
 		}
@@ -125,7 +131,7 @@ void flip_ioport_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
 		qemu_mutex_unlock(&f->lock);
 
 		/* dispatch flip action in 2 ns */
-		qemu_mod_timer(f->flip_timer, qemu_get_clock_ns(vm_clock) + 2);
+		timer_mod(f->flip_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2);
 	
 		break;
 	default:
@@ -139,6 +145,8 @@ const MemoryRegionOps flip_io_ops = {
 	.read = flip_ioport_read,
 	.write = flip_ioport_write,
 	.endianness = DEVICE_LITTLE_ENDIAN,
+	.impl.unaligned = true,
+	.valid.unaligned = true,
 };
 
 /* device reset function */
@@ -168,8 +176,10 @@ static void flip_callback(void *opaque)
 	if (!(f->state & FLIP_IN_EMPTY)) {
 
 		/* wait for ISR to read away */
-		if (!(f->state & FLIP_OUT_EMPTY))
+		if (!(f->state & FLIP_OUT_EMPTY)) {
 			usleep(2000);
+		}
+		
 
 		qemu_mutex_lock(&f->lock);
 
@@ -212,15 +222,17 @@ static int flip_pci_init(PCIDevice *dev)
 	FLIPState *f = &pf->state;
 
 	/* connect to INTA pin*/
-	pf->dev.config[PCI_INTERRUPT_PIN] = 0x01; /* INTA */
-	f->irq = pf->dev.irq[0]; /* INTA */
+	//pf->dev.config[PCI_INTERRUPT_PIN] = 0x01; /* INTA */
+	pci_config_set_interrupt_pin(pf->dev.config, 0x1);
+	//f->irq = pf->dev.irq[0]; /* INTA */
+	f->irq = pci_allocate_irq(dev);
 
 	/* init the timer */
-	f->flip_timer = qemu_new_timer_ns(vm_clock, (QEMUTimerCB *)flip_callback, f);
+	f->flip_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)flip_callback, f);
 	/* register reset function */
 	qemu_register_reset(flip_reset, f);
 	/* register ioport */
-	memory_region_init_io(&f->io, &flip_io_ops, f, "flip", 16);
+	memory_region_init_io(&f->io, OBJECT(pf), &flip_io_ops, f, "flip", 16);
 
 	/* register PCI bar */
 	pci_register_bar(&pf->dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &f->io);
