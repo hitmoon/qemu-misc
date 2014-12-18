@@ -1,4 +1,4 @@
-#include <linux/module.h>
+
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/kernel.h>
@@ -6,6 +6,8 @@
 #include <linux/interrupt.h>
 #include <linux/ioctl.h>
 #include <linux/delay.h>
+#include <linux/semaphore.h>
+#include <linux/fs.h>
 
 #define KOBJ_NAME_LEN 20
 #define FLIP_REG_LEN 4
@@ -152,7 +154,7 @@ static irqreturn_t flip_handler(int irq, void *dev_id)
 	if (down_trylock(&flip_char_dev->sem))
 		return -ERESTARTSYS;
 	
-	//printk("write to fifo\n");
+	//printk("write to fifo: %u\n", in);
 	for (i = 0; i < FLIP_REG_LEN; i++) {
 		data = (in >> i * 8) & 0xff;
 		if (data == 0)
@@ -322,7 +324,7 @@ nomem:
 	return count - ret;
 }
 
-int flip_char_ioctl(struct inode *inode, struct file *flip, unsigned int cmd, unsigned long arg)
+int flip_char_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 {
 	int ret, dir;
 
@@ -347,7 +349,7 @@ static struct file_operations flip_char_ops = {
 	.owner = THIS_MODULE,
 	.read = flip_char_read,
 	.write = flip_char_write,
-	.ioctl = flip_char_ioctl,
+	.unlocked_ioctl = flip_char_ioctl,
 	.open = flip_char_open,
 	.release = flip_char_close,
 };
